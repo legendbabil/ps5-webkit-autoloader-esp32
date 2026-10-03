@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -30,47 +30,76 @@ jobs:
             unzip \
             xz-utils
 
-      - name: Install project dependencies
+      - name: Install Arduino CLI
         run: |
-          chmod +x install-deps.sh
-          ./install-deps.sh
+          mkdir -p "$HOME/bin"
+
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR="$HOME/bin" sh
+
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/bin:$PATH"
+
+          arduino-cli version
+
+      - name: Initialize Arduino CLI
+        run: |
+          export PATH="$HOME/bin:$PATH"
+
+          mkdir -p "$HOME/.arduino15"
+
+          arduino-cli config init
+
+          arduino-cli config add board_manager.additional_urls \
+            https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+          arduino-cli core update-index
+
+      - name: Install ESP32 Core 2.0.11
+        run: |
+          export PATH="$HOME/bin:$PATH"
+
+          mkdir -p "$HOME/.arduino15-esp32-2"
+
+          arduino-cli \
+            --config-file "$HOME/.arduino15/arduino-cli.yaml" \
+            --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json \
+            core install esp32:esp32@2.0.11
 
       - name: Verify ESP32 Core
         run: |
-          echo "===== Arduino Core ====="
+          export PATH="$HOME/bin:$PATH"
 
-          arduino-cli \
-            --config-file "$HOME/.arduino15/arduino-cli-esp32-2.yaml" \
-            core list
+          arduino-cli core list
 
-          echo "===== Expected Core Directory ====="
+          find "$HOME/.arduino15" \
+            -path "*/esp32/hardware/esp32/2.0.11" \
+            -type d \
+            -print
 
-          test -d "$HOME/.arduino15-esp32-2/packages/esp32/hardware/esp32/2.0.11"
-
-          echo "ESP32 Core 2.0.11 OK"
+      - name: Prepare project dependencies
+        run: |
+          git submodule update --init --recursive
 
       - name: Build mklittlefs
         run: |
-          echo "===== mklittlefs ====="
-
-          git submodule update --init --recursive
-
-          make -C mklittlefs
+          make -C mklittlefs -j$(nproc)
 
           test -x mklittlefs/mklittlefs
 
-          echo "mklittlefs OK"
-          ls -lh mklittlefs/mklittlefs
+          echo "mklittlefs built successfully"
 
       - name: Build firmware
+        env:
+          PATH: /home/runner/bin:$PATH
         run: |
           make
 
-      - name: Show generated firmware
+      - name: Show generated files
         if: always()
         run: |
-          echo "===== GENERATED BIN FILES ====="
-          find build -type f -name "*.bin" -print 2>/dev/null || true
+          echo "===== BIN FILES ====="
+          find . -type f -name "*.bin" -print
 
       - name: Upload firmware
         if: success()
@@ -78,5 +107,6 @@ jobs:
         with:
           name: ps5-webkit-autoloader-esp32
           path: |
-            build/**/*.bin
+            **/*.bin
+            **/*.elf
           if-no-files-found: error
