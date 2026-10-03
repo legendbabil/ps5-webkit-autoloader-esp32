@@ -14,80 +14,53 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            make \
-            gcc \
-            g++ \
-            cmake \
-            python3 \
-            python3-pip \
+            build-essential \
+            ca-certificates \
             curl \
-            unzip
+            git \
+            jq \
+            nodejs \
+            npm \
+            openssl \
+            python3 \
+            unzip \
+            xz-utils
 
-      - name: Install Arduino CLI
+      - name: Install project dependencies
         run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-          sudo mv bin/arduino-cli /usr/local/bin/arduino-cli
-          arduino-cli version
+          chmod +x install-deps.sh
+          ./install-deps.sh
 
-      - name: Configure Arduino CLI
+      - name: Verify ESP32 Core
         run: |
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls \
-            https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index
+          echo "===== Arduino Core ====="
 
-      - name: Install ESP32 Core 2.0.11
+          arduino-cli \
+            --config-file "$HOME/.arduino15/arduino-cli-esp32-2.yaml" \
+            core list
+
+          echo "===== Expected Core Directory ====="
+
+          test -d "$HOME/.arduino15-esp32-2/packages/esp32/hardware/esp32/2.0.11"
+
+          echo "ESP32 Core 2.0.11 OK"
+
+      - name: Build mklittlefs
         run: |
-          arduino-cli core install esp32:esp32@2.0.11
-          arduino-cli core list
-
-      - name: Build existing mklittlefs submodule
-        run: |
-          echo "Checking mklittlefs..."
-          ls -la mklittlefs
-
-          cd mklittlefs
+          echo "===== mklittlefs ====="
 
           git submodule update --init --recursive
 
-          make clean || true
-          make -j$(nproc)
+          make -C mklittlefs
 
-          echo "Checking generated mklittlefs..."
-          ls -lh mklittlefs
+          test -x mklittlefs/mklittlefs
 
-          if [ ! -f mklittlefs ]; then
-            echo "ERROR: mklittlefs was not built"
-            exit 1
-          fi
-
-          chmod +x mklittlefs
-
-      - name: Install mklittlefs into PATH
-        run: |
-          sudo cp mklittlefs/mklittlefs /usr/local/bin/mklittlefs
-          sudo chmod +x /usr/local/bin/mklittlefs
-
-          echo "mklittlefs location:"
-          which mklittlefs
-
-          echo "mklittlefs version:"
-          mklittlefs --version || true
-
-      - name: Verify project structure
-        run: |
-          echo "===== ROOT ====="
-          ls -la
-
-          echo "===== MKLITTLEFS ====="
-          ls -la mklittlefs
-
-          echo "===== SUBMODULES ====="
-          git submodule status
+          echo "mklittlefs OK"
+          ls -lh mklittlefs/mklittlefs
 
       - name: Build firmware
         run: |
@@ -97,7 +70,7 @@ jobs:
         if: always()
         run: |
           echo "===== GENERATED BIN FILES ====="
-          find . -type f -name "*.bin" -print
+          find build -type f -name "*.bin" -print 2>/dev/null || true
 
       - name: Upload firmware
         if: success()
@@ -106,5 +79,4 @@ jobs:
           name: ps5-webkit-autoloader-esp32
           path: |
             build/**/*.bin
-            build/**/*.elf
           if-no-files-found: error
